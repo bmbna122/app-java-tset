@@ -1,1 +1,1 @@
-container_image = "nginx"
+container_image = "lolidio/devops-app:latest"
