@@ -45,6 +45,10 @@ resource "aws_ecs_service" "app" {
     desired_count = 1
     launch_type = "FARGATE"
 
+    deployment_controller {
+        type = "CODE_DEPLOY"
+    }
+
     network_configuration {
         subnets = [aws_subnet.public_1.id, aws_subnet.public_2.id]
         assign_public_ip = true
@@ -52,7 +56,7 @@ resource "aws_ecs_service" "app" {
     }
 
     load_balancer {
-        target_group_arn = aws_lb_target_group.tg.arn
+        target_group_arn = aws_lb_target_group.green_tg.arn
         container_name = "app"
         container_port = 80
     }

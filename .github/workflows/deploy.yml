@@ -9,6 +9,12 @@ jobs:
   depoly:
     runs-on: ubuntu-latest
 
+    env:
+      CLUSTER: devops-cluster
+      SERVICE: devops-service
+      REGION: us-east-1
+      IMAGE_NAME: devops-app
+
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -29,9 +35,36 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
+      - name: Register new task definition
+        id: taskdef
+        run: |
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition devops-task \
+            --query "taskDefinition")
+          
+          NEW_TASK_DEF=$(echo $TASK_DEF | jq \
+            --arg IMAGE "${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:${{ github.sha }}" \
+            '.containerDefinitions[0].image = $IMAGE 
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registerBy)')
+
+          echo $NEW_TASK_DEF > new-task-def.json
+
+          aws ecs register-task-definition \
+            --cli-input-json file://new-task-def.json
+
       - name: Deploy to ECS
         run: |
           aws ecs update-service \
             --cluster devops-cluster \
             --service devops-service \
             --force-new-deployment
+
+      - name: WAit for ECS stability
+        run: |
+          aws ecs wait services-stable \
+            --cluster $CLUSTER \
+            --service $SERVICE
+
+      - name: Verify deployment
+        run: |
+          echo "Deployment completed"

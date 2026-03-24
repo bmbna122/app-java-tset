@@ -1,1 +1,1 @@
-container_image = "lolidio/devops-app:latest"
+container_image = "lolidio/devops-app:v3"
