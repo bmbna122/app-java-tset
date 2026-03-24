@@ -48,7 +48,7 @@ jobs:
 
           ACTIVE_TG=$(aws elbv2 describe-listners \
             --load-balancer-arn $ALB_ARN \
-            --query "Listeners[0].DefaultActions[0].ForwardConfig.TargetGroups[?Weight==\'100\'].TargetGroupArn" \
+            --query "Listeners[0].DefaultActions[0].TargetGroupArn" \
             --output text)
 
           echo "ACTIVE_TG=$ACTIVE_TG"
