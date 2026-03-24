@@ -92,7 +92,31 @@ jobs:
             --cluster $CLUSTER \
             --service ${{ steps.env.outputs.TARGET_SERVICE }}
 
+      - name: Verify target health
+        id: health
+        run: |
+          - name: Verify target health
+        id: health
+        run: |
+          TG_ARN=$(aws elbv2 describe-target-groups \
+            --names ${{ steps.env.outputs.TARGET_TG }} \
+            --query "TargetGroups[0].TargetGroupArn" \
+            --output text)
+
+          STATUS=$(aws elbv2 describe-target-health \
+            --target-group-arn $TG_ARN \
+            --query "TargetHealthDescriptions[0].TargetHealth.State" \
+            --output text)
+
+          echo "Health status: $STATUS"
+
+          if [ "$STATUS" != "healthy" ]; then
+            echo "Deployment unhealthy ❌"
+            exit 1
+          fi
+
       - name: Switch traffic
+        if: success()
         run: |
           ALB_ARN=$(aws elbv2 describe-load-balancers \
             --query "LoadBalancers[0].LoadBalancerArn" \
@@ -112,6 +136,35 @@ jobs:
             --listener-arn $LISTENER_ARN \
             --default-actions Type=forward,TargetGroupArn=$TG_ARN
 
-      # - name: Verify deployment
-      #   run: |
-      #     echo "Deployment completed"
+      - name: Rollback if failed
+        if: failure()
+        run: |
+          echo "Rolling back to previous version 🚨"
+
+          ALB_ARN=$(aws elbv2 describe-load-balancers \
+            --query "LoadBalancers[0].LoadBalancerArn" \
+            --output text)
+
+          LISTENER_ARN=$(aws elbv2 describe-listeners \
+            --load-balancer-arn $ALB_ARN \
+            --query "Listeners[0].ListenerArn" \
+            --output text)
+
+          if [[ "${{ steps.env.outputs.TARGET_TG }}" == "${{ env.GREEN_TG }}" ]]; then
+            ROLLBACK_TG=${{ env.BLUE_TG }}
+          else
+            ROLLBACK_TG=${{ env.GREEN_TG }}
+          fi
+
+          TG_ARN=$(aws elbv2 describe-target-groups \
+            --names $ROLLBACK_TG \
+            --query "TargetGroups[0].TargetGroupArn" \
+            --output text)
+
+          aws elbv2 modify-listener \
+            --listener-arn $LISTENER_ARN \
+            --default-actions Type=forward,TargetGroupArn=$TG_ARN
+
+          echo "Rollback completed ✅"
+
+
