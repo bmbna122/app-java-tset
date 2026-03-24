@@ -102,7 +102,7 @@ jobs:
 
           echo "Waiting for targets to register..."
 
-          for 1 in {1..12}; do
+          for i in {1..12}; do
             STATUS=$(aws elbv2 describe-target-health \
               --target=group-arn $TG_ARN \
               --query "TargetHealthDescriptions[0].TargetHealth.State" \
