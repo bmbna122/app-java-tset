@@ -104,7 +104,7 @@ jobs:
 
           for i in {1..12}; do
             STATUS=$(aws elbv2 describe-target-health \
-              --target=group-arn $TG_ARN \
+              --target-group-arn $TG_ARN \
               --query "TargetHealthDescriptions[0].TargetHealth.State" \
               --output text)
 
