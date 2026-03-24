@@ -94,18 +94,23 @@ jobs:
 
       - name: Switch traffic
         run: |
+          ALB_ARN=$(aws elbv2 describe-load-balancers \
+            --query "LoadBalancers[0].LoadBalancerArn" \
+            --output text)
+          
+          LISTENER_ARN=$(aws elbv2 describe-listeners \
+            --load-balancer-arn $ALB_ARN \
+            --query "Listeners[0].ListenerArn" \
+            --output text)
+            
           TG_ARN=$(aws elbv2 describe-target-groups \
             --names ${{ steps.env.outputs.TARGET_TG }} \
             --query "TargetGroups[0].TargetGroupArn" \
             --output text)
 
-          LISTENER_ARN=$(aws elbv2 describe-listeners \
-            --query "Listeners[0].ListenerArn" \
-            --output text)
-
           aws elbv2 modify-listener \
             --listener-arn $LISTENER_ARN \
-            --default-actions Type=forward,ForwardConfig="{TargetGroups=[{TargetGroupArn=$TG_ARN,Weight=100}]}"
+            --default-actions Type=forward,TargetGroupArn=$TG_ARN
 
       # - name: Verify deployment
       #   run: |
