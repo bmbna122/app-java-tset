@@ -100,18 +100,27 @@ jobs:
             --query "TargetGroups[0].TargetGroupArn" \
             --output text)
 
-          STATUS=$(aws elbv2 describe-target-health \
-            --target-group-arn $TG_ARN \
-            --query "TargetHealthDescriptions[0].TargetHealth.State" \
-            --output text)
+          echo "Waiting for targets to register..."
 
-          echo "Health status: $STATUS"
+          for 1 in {1..12}; do
+            STATUS=$(aws elbv2 describe-target-health \
+              --target=group-arn $TG_ARN \
+              --query "TargetHealthDescriptions[0].TargetHealth.State" \
+              --output text)
 
-          if [ "$STATUS" != "healthy" ]; then
-            echo "Deployment unhealthy ❌"
-            exit 1
-          fi
+            echo "Attempt $i - Status: $STATUS"
 
+            if [ $"STATUS" == "healthy" ]; then
+              echo "Target is healthy"
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "deployment unhelathy after waiting"
+          exit 1
+  
       - name: Switch traffic
         if: success()
         run: |
