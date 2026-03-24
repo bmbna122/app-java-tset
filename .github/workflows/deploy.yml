@@ -95,9 +95,6 @@ jobs:
       - name: Verify target health
         id: health
         run: |
-          - name: Verify target health
-        id: health
-        run: |
           TG_ARN=$(aws elbv2 describe-target-groups \
             --names ${{ steps.env.outputs.TARGET_TG }} \
             --query "TargetGroups[0].TargetGroupArn" \
