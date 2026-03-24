@@ -46,7 +46,7 @@ jobs:
             --query "LoadBalancers[0].LoadBalancerArn" \
             --output text)
 
-          ACTIVE_TG=$(aws elbv2 describe-listners \
+          ACTIVE_TG=$(aws elbv2 describe-listeners \
             --load-balancer-arn $ALB_ARN \
             --query "Listeners[0].DefaultActions[0].TargetGroupArn" \
             --output text)
