@@ -46,7 +46,7 @@ resource "aws_ecs_service" "app" {
     launch_type = "FARGATE"
 
     deployment_controller {
-        type = "CODE_DEPLOY"
+        type = "ECS"
     }
 
     network_configuration {
