@@ -106,7 +106,7 @@ jobs:
           aws ecs update-service \
             --cluster $CLUSTER \
             --service ${{ steps.env.outputs.TARGET_SERVICE }} \
-            --task-defintion $NEW_TASK_DEF_ARN
+            --task-definition $NEW_TASK_DEF_ARN
 
       - name: WAit for healthy
         run: |
