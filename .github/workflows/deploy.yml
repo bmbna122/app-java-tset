@@ -81,6 +81,18 @@ jobs:
 
       - name: Deploy to ECS
         run: |
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definiton devops-task \
+            --query "taskDefinition")
+
+          echo "$TASK_DEF" | jq \
+            --arg IMAGE "${{ secrets.DOCKER_USERNAME }}/devops-app:{{ github.sha }}" \
+            '.containerDefinitions[0].image = $IMAGE
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
+            > new-task.json
+          
+          echo "Generated new-task.json"
+          
           NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
             --cli-input-json file://new-task.json \
             --query "taskDefinition.taskDefinitionArn" \
