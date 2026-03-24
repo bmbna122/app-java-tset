@@ -81,12 +81,15 @@ jobs:
 
       - name: Deploy to ECS
         run: |
+          IMAGE="${{ secrets.DOCKER_USERNAME }}/devops-app:${{ github.sha }}"
+          echo "Using image: $IMAGE"
+
           TASK_DEF=$(aws ecs describe-task-definition \
             --task-definition devops-task \
             --query "taskDefinition")
 
           echo "$TASK_DEF" | jq \
-            --arg IMAGE "${{ secrets.DOCKER_USERNAME }}/devops-app:{{ github.sha }}" \
+            --arg IMAGE "$IMAGE" \
             '.containerDefinitions[0].image = $IMAGE
             | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
             > new-task.json
