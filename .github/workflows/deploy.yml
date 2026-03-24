@@ -82,7 +82,7 @@ jobs:
       - name: Deploy to ECS
         run: |
           TASK_DEF=$(aws ecs describe-task-definition \
-            --task-definiton devops-task \
+            --task-definition devops-task \
             --query "taskDefinition")
 
           echo "$TASK_DEF" | jq \
@@ -92,7 +92,7 @@ jobs:
             > new-task.json
           
           echo "Generated new-task.json"
-          
+
           NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
             --cli-input-json file://new-task.json \
             --query "taskDefinition.taskDefinitionArn" \
