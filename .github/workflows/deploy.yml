@@ -55,8 +55,8 @@ jobs:
       - name: Deploy to ECS
         run: |
           aws ecs update-service \
-            --cluster devops-cluster \
-            --service devops-service \
+            --cluster $CLUSTER \
+            --service $SERVICE \
             --force-new-deployment
 
       - name: WAit for ECS stability
