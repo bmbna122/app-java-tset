@@ -10,9 +10,12 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      CLUSTER: devops-cluster
-      SERVICE: devops-service
       REGION: us-east-1
+      CLUSTER: devops-cluster
+      BLUE_SERVICE: devops-service-blue
+      GREEN_SERVICE: devops-service
+      BLUE_TG: devops-tg
+      GREEN_TG: devops-green-tg
       IMAGE_NAME: devops-app
 
     steps:
@@ -23,10 +26,11 @@ jobs:
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
       
       - name: Build Image
-        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/devops-app:latest ./app
+        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/devops-app:${{ github.sha }} ./app
 
       - name: Push Image
-        run: docker push ${{ secrets.DOCKER_USERNAME }}/devops-app:latest
+        run: |
+          docker push ${{ secrets.DOCKER_USERNAME }}/devops-app:${{ github.sha }}
 
       - name: COnfigure AWS
         uses: aws-actions/configure-aws-credentials@v3
@@ -35,8 +39,31 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
+      - name: Detect active environment
+        id: env
+        run: |
+          ALB_ARN=$(aws elbv2 describe-load-balancers \
+            --query "LoadBalancers[0].LoadBalancerArn" \
+            --output text)
+
+          ACTIVE_TG=$(aws elbv2 describe-listners \
+            --load-balancer-arn $ALB_ARN \
+            --query "Listeners[0].DefaultActions[0].ForwardConfig.TargetGroups[?Weight==\'100\'].TargetGroupArn" \
+            --output text)
+
+          echo "ACTIVE_TG=$ACTIVE_TG"
+
+          if [[ $ACTIVE_TG == *"${{ env.GREEN_TG }}"* ]]; then
+            echo "TARGET_SERVICE=${{ env.BLUE_SERVICE }}" >> $GITHUB_OUTPUT
+            echo "TARGET_TG=${{ env.BLUE_TG }}" >> $GITHUB_OUTPUT
+          else
+            echo "TARGET_SERVICE=${{ env.GREEN_SERVICE }}" >> $GITHUB_OUTPUT
+            echo "TARGET_TG=${{ env.GREEN_TG }}" >> $GITHUB_OUTPUT
+          fi
+
+
       - name: Register new task definition
-        id: taskdef
+        # id: taskdef
         run: |
           TASK_DEF=$(aws ecs describe-task-definition \
             --task-definition devops-task \
@@ -56,15 +83,30 @@ jobs:
         run: |
           aws ecs update-service \
             --cluster $CLUSTER \
-            --service $SERVICE \
+            --service ${{ steps.env.outputs.TARGET_SERVICE }} \
             --force-new-deployment
 
-      - name: WAit for ECS stability
+      - name: WAit for healthy
         run: |
           aws ecs wait services-stable \
             --cluster $CLUSTER \
-            --service $SERVICE
+            --service ${{ steps.env.outputs.TARGET_SERVICE }}
 
-      - name: Verify deployment
+      - name: Switch traffic
         run: |
-          echo "Deployment completed"
+          TG_ARN=$(aws elbv2 describe-target-groups \
+            --names ${{ steps.env.outputs.TARGET_TG }} \
+            --query "TargetGroups[0].TargetGroupArn" \
+            --output text)
+
+          LISTENER_ARN=$(aws elbv2 describe-listeners \
+            --query "Listeners[0].ListenerArn" \
+            --output text)
+
+          aws elbv2 modify-listener \
+            --listener-arn $LISTENER_ARN \
+            --default-actions Type=forward,ForwardConfig="{TargetGroups=[{TargetGroupArn=$TG_ARN,Weight=100}]}"
+
+      # - name: Verify deployment
+      #   run: |
+      #     echo "Deployment completed"
