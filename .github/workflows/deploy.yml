@@ -81,10 +81,17 @@ jobs:
 
       - name: Deploy to ECS
         run: |
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://new-task.json \
+            --query "taskDefinition.taskDefinitionArn" \
+            --output text)
+          
+          echo "New task definition: $NEW_TASK_DEF_ARN"
+
           aws ecs update-service \
             --cluster $CLUSTER \
             --service ${{ steps.env.outputs.TARGET_SERVICE }} \
-            --force-new-deployment
+            --task-defintion $NEW_TASK_DEF_ARN
 
       - name: WAit for healthy
         run: |
