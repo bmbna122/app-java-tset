@@ -83,7 +83,7 @@ resource "aws_ecs_service" "app" {
         container_port = 80
     }
 
-    depends_on = [aws_lb_listener.listener, aws_lb_target_group.green_tg, aws_lb_target_group.tg]
+    depends_on = [aws_lb_listener.listener]
 }
 
 resource "aws_ecs_service" "blue" {
@@ -106,8 +106,6 @@ resource "aws_ecs_service" "blue" {
     }
 
     depends_on = [
-        aws_lb_listener.listener,
-        aws_lb_target_group.green_tg,
-        aws_lb_target_group.tg
+        aws_lb_listener.listener
     ]
 }
