@@ -124,37 +124,33 @@ jobs:
 
           echo "Waiting for targets to register..."
 
-          for i in {1..12}; do
-            STATUS=$(aws elbv2 describe-target-health \
+          ATTEMPTS=30
+          COUNT=1
+
+          while [ $COUNT -le $ATTEMPTS ]; do
+            STATES=$(aws elbv2 describe-target-health \
               --target-group-arn $TG_ARN \
-              --query "TargetHealthDescriptions[0].TargetHealth.State" \
+              --query "TargetHealthDescriptions[].TargetHealth.State" \
               --output text)
+            echo "Attempt $COUNT - States: $STATES"
 
-            echo "waiting for targets to become healthy ..."
+            if [[ $STATES == *"healthy"* ]]; then
+              echo "Targets are healthy!"
+              exit 0
+            fi
 
-            ATTEMPTS=30
-            COUNT=1
+            if [[ $STATES == *"unhealthy"* ]]; then
+              echo "Targets are unhealthy. Failing deployment."
+              exit 1
+            fi
 
-            while [ $COUNT -le $ATTEMPTS ]; do
-              STATES=$(aws elbv2 describe-target-health \
-                --target-group-arn $TG_ARN \
-                --query "TargetHealthDescriptions[].TargetHealth.State" \
-                --output text)
-              echo "attempt $COUNT- States: $STATES"
+            sleep 10
+            COUNT=$((COUNT + 1))
+          done
 
-              if [[ "$STATES" == *"healthy"* ]]; then
-                echo "Targets are healthy!"
-                exit 0
-              fi
+          echo "Timeout waiting for healthy targets X"
+          exit 1
 
-              if [[ "$STATES" == *"unhealthy"* ]]; then
-                echo "Targets are unhealthy. Failing deployment."
-                exit 1
-              fi
-
-              sleep 10
-              COUNT=$((COUNT + 1))
-            done
   
       - name: Switch traffic
         if: success()
