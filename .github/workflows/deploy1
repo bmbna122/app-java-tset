@@ -1,0 +1,207 @@
+name: Deploy to ECS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  depoly:
+    runs-on: ubuntu-latest
+
+    env:
+      REGION: us-east-1
+      CLUSTER: devops-cluster
+      BLUE_SERVICE: devops-service-blue
+      GREEN_SERVICE: devops-service
+      BLUE_TG: devops-tg
+      GREEN_TG: devops-green-tg
+      IMAGE_NAME: devops-app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Login to Docker Hub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+      
+      - name: Build Image
+        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/devops-app:${{ github.sha }} ./app
+
+      - name: Push Image
+        run: |
+          docker push ${{ secrets.DOCKER_USERNAME }}/devops-app:${{ github.sha }}
+
+      - name: COnfigure AWS
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Detect active environment
+        id: env
+        run: |
+          ALB_ARN=$(aws elbv2 describe-load-balancers \
+            --query "LoadBalancers[0].LoadBalancerArn" \
+            --output text)
+
+          ACTIVE_TG=$(aws elbv2 describe-listeners \
+            --load-balancer-arn $ALB_ARN \
+            --query "Listeners[0].DefaultActions[0].TargetGroupArn" \
+            --output text)
+
+          echo "ACTIVE_TG=$ACTIVE_TG"
+
+          if [[ $ACTIVE_TG == *"${{ env.GREEN_TG }}"* ]]; then
+            echo "TARGET_SERVICE=${{ env.BLUE_SERVICE }}" >> $GITHUB_OUTPUT
+            echo "TARGET_TG=${{ env.BLUE_TG }}" >> $GITHUB_OUTPUT
+          else
+            echo "TARGET_SERVICE=${{ env.GREEN_SERVICE }}" >> $GITHUB_OUTPUT
+            echo "TARGET_TG=${{ env.GREEN_TG }}" >> $GITHUB_OUTPUT
+          fi
+
+
+      - name: Register new task definition
+        # id: taskdef
+        run: |
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition devops-task \
+            --query "taskDefinition")
+          
+          NEW_TASK_DEF=$(echo $TASK_DEF | jq \
+            --arg IMAGE "${{ secrets.DOCKER_USERNAME }}/$IMAGE_NAME:${{ github.sha }}" \
+            '.containerDefinitions[0].image = $IMAGE 
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
+
+          echo $NEW_TASK_DEF > new-task-def.json
+
+          aws ecs register-task-definition \
+            --cli-input-json file://new-task-def.json
+
+      - name: Deploy to ECS
+        run: |
+          IMAGE="${{ secrets.DOCKER_USERNAME }}/devops-app:${{ github.sha }}"
+          echo "Using image: $IMAGE"
+
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition devops-task \
+            --query "taskDefinition")
+
+          echo "$TASK_DEF" | jq \
+            --arg IMAGE "$IMAGE" \
+            '.containerDefinitions[0].image = $IMAGE
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
+            > new-task.json
+          
+          echo "Generated new-task.json"
+
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://new-task.json \
+            --query "taskDefinition.taskDefinitionArn" \
+            --output text)
+          
+          echo "New task definition: $NEW_TASK_DEF_ARN"
+
+          aws ecs update-service \
+            --cluster $CLUSTER \
+            --service ${{ steps.env.outputs.TARGET_SERVICE }} \
+            --task-definition $NEW_TASK_DEF_ARN
+
+      - name: WAit for healthy
+        run: |
+          aws ecs wait services-stable \
+            --cluster $CLUSTER \
+            --service ${{ steps.env.outputs.TARGET_SERVICE }}
+
+      - name: Verify target health
+        id: health
+        run: |
+          TG_ARN=$(aws elbv2 describe-target-groups \
+            --names ${{ steps.env.outputs.TARGET_TG }} \
+            --query "TargetGroups[0].TargetGroupArn" \
+            --output text)
+
+          echo "Waiting for targets to register..."
+
+          ATTEMPTS=30
+          COUNT=1
+
+          while [ $COUNT -le $ATTEMPTS ]; do
+            STATES=$(aws elbv2 describe-target-health \
+              --target-group-arn $TG_ARN \
+              --query "TargetHealthDescriptions[].TargetHealth.State" \
+              --output text)
+            echo "Attempt $COUNT - States: $STATES"
+
+            if [[ $STATES == *"healthy"* ]]; then
+              echo "Targets are healthy!"
+              exit 0
+            fi
+
+            if [[ $STATES == *"unhealthy"* ]]; then
+              echo "Targets are unhealthy. Failing deployment."
+              exit 1
+            fi
+
+            sleep 10
+            COUNT=$((COUNT + 1))
+          done
+
+          echo "Timeout waiting for healthy targets X"
+          exit 1
+
+  
+      - name: Switch traffic
+        if: success()
+        run: |
+          ALB_ARN=$(aws elbv2 describe-load-balancers \
+            --query "LoadBalancers[0].LoadBalancerArn" \
+            --output text)
+          
+          LISTENER_ARN=$(aws elbv2 describe-listeners \
+            --load-balancer-arn $ALB_ARN \
+            --query "Listeners[0].ListenerArn" \
+            --output text)
+            
+          TG_ARN=$(aws elbv2 describe-target-groups \
+            --names ${{ steps.env.outputs.TARGET_TG }} \
+            --query "TargetGroups[0].TargetGroupArn" \
+            --output text)
+
+          aws elbv2 modify-listener \
+            --listener-arn $LISTENER_ARN \
+            --default-actions Type=forward,TargetGroupArn=$TG_ARN
+
+      - name: Rollback if failed
+        if: failure()
+        run: |
+          echo "Rolling back to previous version 🚨"
+
+          ALB_ARN=$(aws elbv2 describe-load-balancers \
+            --query "LoadBalancers[0].LoadBalancerArn" \
+            --output text)
+
+          LISTENER_ARN=$(aws elbv2 describe-listeners \
+            --load-balancer-arn $ALB_ARN \
+            --query "Listeners[0].ListenerArn" \
+            --output text)
+
+          if [[ "${{ steps.env.outputs.TARGET_TG }}" == "${{ env.GREEN_TG }}" ]]; then
+            ROLLBACK_TG=${{ env.BLUE_TG }}
+          else
+            ROLLBACK_TG=${{ env.GREEN_TG }}
+          fi
+
+          TG_ARN=$(aws elbv2 describe-target-groups \
+            --names $ROLLBACK_TG \
+            --query "TargetGroups[0].TargetGroupArn" \
+            --output text)
+
+          aws elbv2 modify-listener \
+            --listener-arn $LISTENER_ARN \
+            --default-actions Type=forward,TargetGroupArn=$TG_ARN
+
+          echo "Rollback completed ✅"
+
+
