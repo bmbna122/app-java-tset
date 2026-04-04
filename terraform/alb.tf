@@ -35,21 +35,11 @@ resource "aws_lb_target_group" "green_tg" {
 resource "aws_lb_listener" "listener" {
     load_balancer_arn = aws_lb.app_lb.arn
     port = 80
+    protocol = "HTTP"
 
     default_action {
         type = "forward"
-
-        forward {
-            target_group {
-                arn = aws_lb_target_group.green_tg.arn
-                weight = 100
-            }
-
-            target_group {
-                arn = aws_lb_target_group.tg.arn
-                weight = 0
-            }
-        }
+        target_group_arn = aws_lb_target_group.green_tg.arn
      
     }
 }
