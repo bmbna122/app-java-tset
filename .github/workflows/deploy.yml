@@ -17,7 +17,6 @@ jobs:
 deploy:
 runs-on: ubuntu-latest
 
-```
 steps:
   - name: Checkout
     uses: actions/checkout@v3
@@ -167,4 +166,3 @@ steps:
         --default-actions Type=forward,TargetGroupArn=$OLD_TG_ARN
 
       echo "Rollback completed 🚨"
-```
